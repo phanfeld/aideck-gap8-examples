@@ -45,15 +45,6 @@ import numpy as np
 import torch
 import sys
 
-sys.path.insert(0,'/home/pia/Documents/Coding/adversarial_frontnet/pulp-frontnet/PyTorch')
-sys.path.insert(0,'/home/pia/Documents/Coding/adversarial_frontnet/adversarial_frontnet/')
-# from Frontnet.Frontnet import FrontnetModel
-from util import load_model
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model_path = '/home/pia/Documents/Coding/adversarial_frontnet/pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
-model_config = '160x32'
-
 # Args for setting IP/port of AI-deck. Default settings are for when
 # AI-deck is in AP mode.
 parser = argparse.ArgumentParser(description='Connect to AI-deck JPEG streamer example')
@@ -67,11 +58,21 @@ deck_port = args.p
 deck_ip = args.n
 
 if args.torch:
+  sys.path.insert(0,'/home/pia/Documents/Coding/adversarial_frontnet/pulp-frontnet/PyTorch')
+  sys.path.insert(0,'/home/pia/Documents/Coding/adversarial_frontnet/src/')
+  # # from Frontnet.Frontnet import FrontnetModel
+  from util import load_model
+
+  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  model_path = '/home/pia/Documents/Coding/adversarial_frontnet/pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+  model_config = '160x32'
+
   model = load_model(path=model_path, device=device, config=model_config)
   model.eval()
+
   print("Frontnet model initialized")
-  camera_intrinsics = np.load("/home/pia/Documents/Coding/adversarial_frontnet/misc/camera_intrinsic.npy")
-  camera_extrinsics = np.load("/home/pia/Documents/Coding/adversarial_frontnet/misc/full_translate.npy")
+  camera_intrinsics = np.load("/home/pia/Documents/Coding/adversarial_frontnet/misc/aideck7/intrinsic_d.npy")
+  camera_extrinsics = np.load("/home/pia/Documents/Coding/adversarial_frontnet/misc/aideck7/extrinsic.npy")
   print("Camera calibration loaded from files")
 
 print("Connecting to socket on {}:{}...".format(deck_ip, deck_port))
@@ -93,7 +94,7 @@ import cv2
 start = time.time()
 count = 0
 
-path = './rgb-large-person/'
+path = './data_collection_3/'
 
 os.makedirs(path+"raw/", exist_ok=True)
 os.makedirs(path+"debayer/", exist_ok=True)
@@ -142,9 +143,15 @@ while(1):
           bayer_img.shape = (96, 160)
           color_img = cv2.cvtColor(bayer_img, cv2.COLOR_BayerBG2BGRA)
           if args.torch:
-            output = torch.stack(model(torch.tensor(bayer_img).unsqueeze(0).unsqueeze(0).float())).permute(1, 0, 2).squeeze(2).squeeze(0)
+            output = torch.stack(model(torch.tensor(bayer_img).unsqueeze(0).unsqueeze(0).float())).squeeze(2).mT[0]
+            # print(output.shape)
             print(output.detach().cpu().numpy())
-            u, v, w = camera_intrinsics @ camera_extrinsics @ np.concatenate((output.detach().cpu().numpy()[:3], np.array([1])))
+            # vector = np.concatenate((output.detach().cpu().numpy()[:3], np.array([1])))
+            # print(vector, vector.shape)
+            camera_frame = camera_extrinsics @ np.concatenate((output.detach().cpu().numpy()[:3], np.array([1])))
+            # print(camera_frame, camera_frame.shape)
+            image_frame = camera_intrinsics @ camera_frame[:3]
+            u, v, w = image_frame
             img_x = int(np.round(u/w, decimals=0))
             img_y = int(np.round(v/w, decimals=0))
             print(img_x, img_y)

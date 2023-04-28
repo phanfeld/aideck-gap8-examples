@@ -118,7 +118,7 @@ static int conf_exposure(void)
   uint8_t aeg = 0x00;
   uint8_t aGain = 4;
   uint8_t dGain = 1;
-  uint16_t exposure = 500;
+  uint16_t exposure = 200;
 
    set_register(0x2100, aeg);  // AE_CTRL
 
@@ -249,7 +249,7 @@ void sendBufferViaCPX(CPXPacket_t * packet, uint8_t * buffer, uint32_t bufferSiz
 
 void cropImage(char *imgBuff, char *croppedImg)
 {
-  uint32_t offset = 0;
+  uint32_t offset = 34*162;
   char *curr_adr = croppedImg;
 
   for (uint8_t idx_h = 0; idx_h <97; idx_h++)
@@ -410,7 +410,7 @@ void camera_task(void *parameters)
 
         start = xTaskGetTickCount();
         // Send image
-        char *croppedBuff = imgBuff+(35*sizeof(char));
+        // char *croppedBuff = imgBuff+(35*sizeof(char));
         // sendBufferViaCPX(&txp, imgBuff, imgSize);
         sendBufferViaCPX(&txp, croppedImg, imgSize);
 
