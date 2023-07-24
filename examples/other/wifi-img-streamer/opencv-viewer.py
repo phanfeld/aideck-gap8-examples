@@ -42,16 +42,51 @@ import time
 import socket,os,struct, time
 import numpy as np
 
+import torch
+import sys
+
+import yaml
+import rowan
+
 # Args for setting IP/port of AI-deck. Default settings are for when
 # AI-deck is in AP mode.
 parser = argparse.ArgumentParser(description='Connect to AI-deck JPEG streamer example')
 parser.add_argument("-n",  default="192.168.4.1", metavar="ip", help="AI-deck IP")
 parser.add_argument("-p", type=int, default='5000', metavar="port", help="AI-deck port")
 parser.add_argument('--save', action='store_true', help="Save streamed images")
+parser.add_argument('--torch', action='store_true', help="Output Frontnet predictions and project to pixel coords")
 args = parser.parse_args()
 
 deck_port = args.p
 deck_ip = args.n
+
+if args.torch:
+  sys.path.insert(0,'/path/to/flying_adversarial_patch/src/')
+  # # from Frontnet.Frontnet import FrontnetModel
+  from util import load_model, opencv2quat
+
+  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  model_path = '/path/to/flying_adversarial_patch/pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+  model_config = '160x32'
+
+  model = load_model(path=model_path, device=device, config=model_config)
+  model.eval()
+
+  print("Frontnet model initialized")
+  with open('/path/to/flying_adversarial_patch/misc/camera_calibration/calibration.yaml') as f:
+        camera_config = yaml.load(f, Loader=yaml.FullLoader)
+
+  camera_intrinsic = np.array(camera_config['camera_matrix'])
+  distortion_coeffs = np.array(camera_config['dist_coeff'])
+  
+  rvec = np.array(camera_config['rvec'])
+  tvec = camera_config['tvec']
+
+  camera_extrinsic = np.zeros((4,4))
+  camera_extrinsic[:3, :3] = rowan.to_matrix(opencv2quat(rvec))
+  camera_extrinsic[:3, 3] = tvec
+  camera_extrinsic[-1, -1] = 1.
+  print("Camera calibration loaded from files")
 
 print("Connecting to socket on {}:{}...".format(deck_ip, deck_port))
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -72,6 +107,17 @@ import cv2
 start = time.time()
 count = 0
 
+path = './06-07-23/2/'
+
+os.makedirs(path+"raw/", exist_ok=True)
+os.makedirs(path+"debayer/", exist_ok=True)
+if args.torch:
+  os.makedirs(path+"annotated/", exist_ok=True)
+  save_data = []
+
+cv2.namedWindow('Color', cv2.WINDOW_KEEPRATIO)
+
+
 while(1):
     # First get the info
     packetInfoRaw = rx_bytes(4)
@@ -87,10 +133,10 @@ while(1):
     [magic, width, height, depth, format, size] = struct.unpack('<BHHBBI', imgHeader)
 
     if magic == 0xBC:
-      #print("Magic is good")
-      #print("Resolution is {}x{} with depth of {} byte(s)".format(width, height, depth))
-      #print("Image format is {}".format(format))
-      #print("Image size is {} bytes".format(size))
+      # print("Magic is good")
+      # print("Resolution is {}x{} with depth of {} byte(s)".format(width, height, depth))
+      # print("Image format is {}".format(format))
+      # print("Image size is {} bytes".format(size))
 
       # Now we start rx the image, this will be split up in packages of some size
       imgStream = bytearray()
@@ -104,18 +150,40 @@ while(1):
      
       count = count + 1
       meanTimePerImage = (time.time()-start) / count
-      print("{}".format(meanTimePerImage))
-      print("{}".format(1/meanTimePerImage))
-
+      # print("{}".format(meanTimePerImage))
+      # print("{}".format(1/meanTimePerImage))
+      format = 0
       if format == 0:
           bayer_img = np.frombuffer(imgStream, dtype=np.uint8)   
-          bayer_img.shape = (244, 324)
+          bayer_img.shape = (96, 160)
           color_img = cv2.cvtColor(bayer_img, cv2.COLOR_BayerBG2BGRA)
-          cv2.imshow('Raw', bayer_img)
+          if args.torch:
+            output = torch.stack(model(torch.tensor(bayer_img).unsqueeze(0).unsqueeze(0).float())).squeeze(2).mT[0]
+            # print(output.shape)
+            #print(output.detach().cpu().numpy())
+            # vector = np.concatenate((output.detach().cpu().numpy()[:3], np.array([1])))
+            # print(vector, vector.shape)
+            camera_frame = camera_extrinsic @ np.concatenate((output.detach().cpu().numpy()[:3], np.array([1])))
+            # print(camera_frame, camera_frame.shape)
+            image_frame = camera_intrinsic @ camera_frame[:3]
+            u, v, w = image_frame
+            img_x = int(np.round(u/w, decimals=0))
+            img_y = int(np.round(v/w, decimals=0))
+            #print(img_x, img_y)
+            img_w_output = cv2.circle(color_img, (img_x, img_y), radius=2, color=(0, 0, 255), thickness=-1)
+            cv2.imshow('Color', img_w_output)
+            cv2.resizeWindow('Color', 1920, 1152)
+            save_data.append([*output[:3].detach().numpy(), img_x, img_y])
+          else:
+            cv2.imshow('Raw', bayer_img)
           cv2.imshow('Color', color_img)
           if args.save:
-              cv2.imwrite(f"stream_out/raw/img_{count:06d}.png", bayer_img)
-              cv2.imwrite(f"stream_out/debayer/img_{count:06d}.png", color_img)
+              np.save(f"{path}raw/img_{count:06d}", bayer_img)
+              cv2.imwrite(f"{path}raw/img_{count:06d}.png", bayer_img)
+              # cv2.imwrite(f"{path}debayer/img_{count:06d}.png", color_img)
+              if args.torch:
+                cv2.imwrite(f"{path}annotated/img_{count:06d}.png", img_w_output)
+                np.save(f"{path}data.npy", np.array(save_data))
           cv2.waitKey(1)
       else:
           with open("img.jpeg", "wb") as f:

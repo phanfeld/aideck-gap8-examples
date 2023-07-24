@@ -35,13 +35,16 @@
 #include "wifi.h"
 
 #define IMG_ORIENTATION 0x0101
-#define CAM_WIDTH 324
-#define CAM_HEIGHT 244
+#define CAM_WIDTH 162
+#define CAM_HEIGHT 162
 
 static pi_task_t task1;
-static unsigned char *imgBuff;
+static char *imgBuff;
+static char *croppedImg;
 static struct pi_device camera;
 static pi_buffer_t buffer;
+
+#define HIMAX_VSYNC_HSYNC_PIXEL_SHIFT_EN  0x1012
 
 static EventGroupHandle_t evGroup;
 #define CAPTURE_DONE_BIT (1 << 0)
@@ -53,34 +56,103 @@ static uint32_t transferTime = 0;
 static uint32_t encodingTime = 0;
 #define OUTPUT_PROFILING_DATA
 
+static void set_register(uint32_t reg_addr, uint8_t value)
+{
+  uint8_t set_value = value;
+  // uint8_t get_value;
+  pi_camera_reg_set(&camera, reg_addr, &set_value);
+  // pi_time_wait_us(1000000);
+  // pi_camera_reg_get(&camera, reg_addr, &get_value);
+  // if (set_value != get_value)
+  // {
+  //   cpxPrintToConsole(LOG_TO_CRTP, "Failed to set camera register %d\n", reg_addr);
+  // }
+}
+
+
 static int open_pi_camera_himax(struct pi_device *device)
 {
   struct pi_himax_conf cam_conf;
 
   pi_himax_conf_init(&cam_conf);
 
-  cam_conf.format = PI_CAMERA_QVGA;
+  cam_conf.format = PI_CAMERA_QQVGA;
 
   pi_open_from_conf(device, &cam_conf);
   if (pi_camera_open(device))
     return -1;
 
+
   // rotate image
-  pi_camera_control(&camera, PI_CAMERA_CMD_START, 0);
-  uint8_t set_value = 3;
-  uint8_t reg_value;
-  pi_camera_reg_set(&camera, IMG_ORIENTATION, &set_value);
-  pi_time_wait_us(1000000);
-  pi_camera_reg_get(&camera, IMG_ORIENTATION, &reg_value);
-  if (set_value != reg_value)
-  {
-    cpxPrintToConsole(LOG_TO_CRTP, "Failed to rotate camera image\n");
-    return -1;
-  }
-  pi_camera_control(&camera, PI_CAMERA_CMD_STOP, 0);
+  set_register(IMG_ORIENTATION, 3);
 
-  pi_camera_control(device, PI_CAMERA_CMD_AEG_INIT, 0);
+  uint8_t set_value=0x07;                                                                                                                                                                   
+  // set_register(HIMAX_VSYNC_HSYNC_PIXEL_SHIFT_EN, 0x00);
 
+  // rotate image
+  // pi_camera_control(&camera, PI_CAMERA_CMD_START, 0);
+  // uint8_t set_value = 3;
+  // uint8_t reg_value;
+  // pi_camera_reg_set(&camera, IMG_ORIENTATION, &set_value);
+  // pi_time_wait_us(1000000);
+  // pi_camera_reg_get(&camera, IMG_ORIENTATION, &reg_value);
+  // if (set_value != reg_value)
+  // {
+  //   cpxPrintToConsole(LOG_TO_CRTP, "Failed to rotate camera image\n");
+  //   return -1;
+  // }
+  // pi_camera_control(&camera, PI_CAMERA_CMD_STOP, 0);
+
+  // pi_camera_control(device, PI_CAMERA_CMD_AEG_INIT, 0);
+
+  //  This is needed for the camera to actually update its registers.
+  set_register(0x0104, 0x1);
+
+
+
+  return 0;
+}
+
+static int conf_exposure(void)
+{
+  uint8_t aeg = 0x00;
+  uint8_t aGain = 4;
+  uint8_t dGain = 1;
+  uint16_t exposure = 100;
+
+   set_register(0x2100, aeg);  // AE_CTRL
+
+      switch(aGain) {
+        case 8:
+          set_register(0x0205, 0x30);
+          break;
+        case 4:
+          set_register(0x0205, 0x20);
+          break;
+        case 2:
+          set_register(0x0205, 0x10);
+          break;
+        case 1:
+        default:
+          set_register(0x0205, 0x00);
+          break;
+      }
+
+      set_register(0x020E, (dGain >> 6)); // 2.6 int part
+      set_register(0x020F, dGain & 0x3F); // 2.6 float part
+
+      
+      if (exposure < 2) {
+        exposure = 2;
+      }
+      if (exposure > 0x0216 - 2) {
+        exposure = 0x0216 - 2;
+      }
+      set_register(0x0202, (exposure >> 8) & 0xFF);    // INTEGRATION_H
+      set_register(0x0203, exposure & 0xFF);    // INTEGRATION_L
+
+      // This is needed for the camera to actually update its registers.
+      set_register(0x0104, 0x1);
   return 0;
 }
 
@@ -133,8 +205,8 @@ static jpeg_encoder_t jpeg_encoder;
 
 typedef enum
 {
-  RAW_ENCODING = 0,
-  JPEG_ENCODING = 1
+  RAW_ENCODING = 1,
+  JPEG_ENCODING = 0
 } __attribute__((packed)) StreamerMode_t;
 
 pi_buffer_t header;
@@ -151,8 +223,8 @@ static CPXPacket_t txp;
 void createImageHeaderPacket(CPXPacket_t * packet, uint32_t imgSize, StreamerMode_t imgType) {
   img_header_t *imgHeader = (img_header_t *) packet->data;
   imgHeader->magic = 0xBC;
-  imgHeader->width = CAM_WIDTH;
-  imgHeader->height = CAM_HEIGHT;
+  imgHeader->width = 160;//CAM_WIDTH;
+  imgHeader->height = 96;//CAM_HEIGHT;
   imgHeader->depth = 1;
   imgHeader->type = imgType;
   imgHeader->size = imgSize;
@@ -173,6 +245,23 @@ void sendBufferViaCPX(CPXPacket_t * packet, uint8_t * buffer, uint32_t bufferSiz
     cpxSendPacketBlocking(packet);
     offset += size;
   } while (size == sizeof(packet->data));
+}
+
+void cropImage(char *imgBuff, char *croppedImg)
+{
+  uint32_t offset = 34*162;
+  char *curr_adr = croppedImg;
+
+  for (uint8_t idx_h = 0; idx_h <97; idx_h++)
+  {
+    // memcpy(curr_adr, imgBuff + (offset * sizeof(char)), 161*sizeof(char));
+    // offset += 163;
+    // curr_adr += 161 * sizeof(char);
+    memcpy(curr_adr, imgBuff + (offset * sizeof(char)), 160*sizeof(char));
+    // printf("memcpy finished\n");
+    offset += 162;
+    curr_adr += 160 * sizeof(char);
+  }
 }
 
 #ifdef SETUP_WIFI_AP
@@ -207,8 +296,9 @@ void camera_task(void *parameters)
 
   cpxPrintToConsole(LOG_TO_CRTP, "Starting camera task...\n");
   uint32_t resolution = CAM_WIDTH * CAM_HEIGHT;
-  uint32_t captureSize = resolution * sizeof(unsigned char);
-  imgBuff = (unsigned char *)pmsis_l2_malloc(captureSize);
+  uint32_t captureSize = resolution * sizeof(char);
+  imgBuff = (char *)pmsis_l2_malloc(captureSize);
+  croppedImg = (char *)pmsis_l2_malloc(96*160*sizeof(char));
   if (imgBuff == NULL)
   {
     cpxPrintToConsole(LOG_TO_CRTP, "Failed to allocate Memory for Image \n");
@@ -220,6 +310,10 @@ void camera_task(void *parameters)
     cpxPrintToConsole(LOG_TO_CRTP, "Failed to open camera\n");
     return;
   }
+
+  conf_exposure();
+  cpxPrintToConsole(LOG_TO_CRTP, "Configured exposure\n");
+
 
   struct jpeg_encoder_conf enc_conf;
   jpeg_encoder_conf_init(&enc_conf);
@@ -305,7 +399,9 @@ void camera_task(void *parameters)
       }
       else
       {
-        imgSize = captureSize;
+        // imgSize = captureSize;
+        cropImage(imgBuff, croppedImg);
+        imgSize = 96 * 160;
         start = xTaskGetTickCount();
 
         // First send information about the image
@@ -314,7 +410,9 @@ void camera_task(void *parameters)
 
         start = xTaskGetTickCount();
         // Send image
-        sendBufferViaCPX(&txp, imgBuff, imgSize);
+        // char *croppedBuff = imgBuff+(35*sizeof(char));
+        // sendBufferViaCPX(&txp, imgBuff, imgSize);
+        sendBufferViaCPX(&txp, croppedImg, imgSize);
 
         transferTime = xTaskGetTickCount() - start;
       }
