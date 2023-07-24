@@ -118,7 +118,7 @@ static int conf_exposure(void)
   uint8_t aeg = 0x00;
   uint8_t aGain = 4;
   uint8_t dGain = 1;
-  uint16_t exposure = 200;
+  uint16_t exposure = 100;
 
    set_register(0x2100, aeg);  // AE_CTRL
 
