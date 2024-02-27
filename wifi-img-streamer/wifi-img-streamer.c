@@ -311,7 +311,7 @@ void camera_task(void *parameters)
     return;
   }
 
-  conf_exposure();
+  // conf_exposure();     // commented out to use auto exposure settings!
   cpxPrintToConsole(LOG_TO_CRTP, "Configured exposure\n");
 
 
