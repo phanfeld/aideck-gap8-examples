@@ -35,12 +35,12 @@
 #include "wifi.h"
 
 #define IMG_ORIENTATION 0x0101
-#define CAM_WIDTH 162
-#define CAM_HEIGHT 162
+#define CAM_WIDTH 324 //324
+#define CAM_HEIGHT 324 //324
 
 static pi_task_t task1;
 static char *imgBuff;
-static char *croppedImg;
+// static char *croppedImg;
 static struct pi_device camera;
 static pi_buffer_t buffer;
 
@@ -76,7 +76,7 @@ static int open_pi_camera_himax(struct pi_device *device)
 
   pi_himax_conf_init(&cam_conf);
 
-  cam_conf.format = PI_CAMERA_QQVGA;
+  cam_conf.format = PI_CAMERA_QVGA; //;PI_CAMERA_QQVGA
 
   pi_open_from_conf(device, &cam_conf);
   if (pi_camera_open(device))
@@ -115,10 +115,10 @@ static int open_pi_camera_himax(struct pi_device *device)
 
 static int conf_exposure(void)
 {
-  uint8_t aeg = 0x00;
+  uint8_t aeg = 0x01;
   uint8_t aGain = 4;
   uint8_t dGain = 1;
-  uint16_t exposure = 100;
+  uint16_t exposure = 900;
 
    set_register(0x2100, aeg);  // AE_CTRL
 
@@ -223,8 +223,8 @@ static CPXPacket_t txp;
 void createImageHeaderPacket(CPXPacket_t * packet, uint32_t imgSize, StreamerMode_t imgType) {
   img_header_t *imgHeader = (img_header_t *) packet->data;
   imgHeader->magic = 0xBC;
-  imgHeader->width = 160;//CAM_WIDTH;
-  imgHeader->height = 96;//CAM_HEIGHT;
+  imgHeader->width = CAM_WIDTH; // 160
+  imgHeader->height = CAM_HEIGHT; //96
   imgHeader->depth = 1;
   imgHeader->type = imgType;
   imgHeader->size = imgSize;
@@ -298,7 +298,7 @@ void camera_task(void *parameters)
   uint32_t resolution = CAM_WIDTH * CAM_HEIGHT;
   uint32_t captureSize = resolution * sizeof(char);
   imgBuff = (char *)pmsis_l2_malloc(captureSize);
-  croppedImg = (char *)pmsis_l2_malloc(96*160*sizeof(char));
+  // croppedImg = (char *)pmsis_l2_malloc(96*160*sizeof(char));
   if (imgBuff == NULL)
   {
     cpxPrintToConsole(LOG_TO_CRTP, "Failed to allocate Memory for Image \n");
@@ -400,8 +400,8 @@ void camera_task(void *parameters)
       else
       {
         // imgSize = captureSize;
-        cropImage(imgBuff, croppedImg);
-        imgSize = 96 * 160;
+        // cropImage(imgBuff, croppedImg);
+        imgSize = CAM_WIDTH * CAM_HEIGHT;// 96 * 160;
         start = xTaskGetTickCount();
 
         // First send information about the image
@@ -411,8 +411,8 @@ void camera_task(void *parameters)
         start = xTaskGetTickCount();
         // Send image
         // char *croppedBuff = imgBuff+(35*sizeof(char));
-        // sendBufferViaCPX(&txp, imgBuff, imgSize);
-        sendBufferViaCPX(&txp, croppedImg, imgSize);
+        sendBufferViaCPX(&txp, imgBuff, imgSize);
+        // sendBufferViaCPX(&txp, croppedImg, imgSize);
 
         transferTime = xTaskGetTickCount() - start;
       }
@@ -451,17 +451,17 @@ void hb_task(void *parameters)
 
 void start_example(void)
 {
-  struct pi_uart_conf conf;
-  struct pi_device device;
-  pi_uart_conf_init(&conf);
-  conf.baudrate_bps = 115200;
+  // struct pi_uart_conf conf;
+  // struct pi_device device;
+  // pi_uart_conf_init(&conf);
+  // conf.baudrate_bps = 115200;
 
-  pi_open_from_conf(&device, &conf);
-  if (pi_uart_open(&device))
-  {
-    printf("[UART] open failed !\n");
-    pmsis_exit(-1);
-  }
+  // pi_open_from_conf(&device, &conf);
+  // if (pi_uart_open(&device))
+  // {
+  //   printf("[UART] open failed !\n");
+  //   pmsis_exit(-1);
+  // }
 
   cpxInit();
   cpxEnableFunction(CPX_F_WIFI_CTRL);
