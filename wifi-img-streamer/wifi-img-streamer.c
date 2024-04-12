@@ -80,33 +80,34 @@ static int open_pi_camera_himax(struct pi_device *device)
 
   pi_open_from_conf(device, &cam_conf);
   if (pi_camera_open(device))
-    return -1;
+    return -1;                                                                                                                                                                   
 
+  // pi_camera_control(&camera, PI_CAMERA_CMD_START, 0);
 
-  // rotate image
-  set_register(IMG_ORIENTATION, 3);
+  // // rotate image                                                                                                                                                                   
+  // set_register(IMG_ORIENTATION, 3);
 
-  uint8_t set_value=0x07;                                                                                                                                                                   
+  // uint8_t set_value=0x07;                                                                                                                                                                   
   // set_register(HIMAX_VSYNC_HSYNC_PIXEL_SHIFT_EN, 0x00);
 
   // rotate image
-  // pi_camera_control(&camera, PI_CAMERA_CMD_START, 0);
-  // uint8_t set_value = 3;
-  // uint8_t reg_value;
-  // pi_camera_reg_set(&camera, IMG_ORIENTATION, &set_value);
-  // pi_time_wait_us(1000000);
-  // pi_camera_reg_get(&camera, IMG_ORIENTATION, &reg_value);
-  // if (set_value != reg_value)
-  // {
-  //   cpxPrintToConsole(LOG_TO_CRTP, "Failed to rotate camera image\n");
-  //   return -1;
-  // }
-  // pi_camera_control(&camera, PI_CAMERA_CMD_STOP, 0);
+  pi_camera_control(&camera, PI_CAMERA_CMD_START, 0);
+  uint8_t set_value = 3;
+  uint8_t reg_value;
+  pi_camera_reg_set(&camera, IMG_ORIENTATION, &set_value);
+  pi_time_wait_us(1000000);
+  pi_camera_reg_get(&camera, IMG_ORIENTATION, &reg_value);
+  if (set_value != reg_value)
+  {
+    cpxPrintToConsole(LOG_TO_CRTP, "Failed to rotate camera image\n");
+    return -1;
+  }
+  pi_camera_control(&camera, PI_CAMERA_CMD_STOP, 0);
 
-  // pi_camera_control(device, PI_CAMERA_CMD_AEG_INIT, 0);
+  pi_camera_control(device, PI_CAMERA_CMD_AEG_INIT, 0);
 
   //  This is needed for the camera to actually update its registers.
-  set_register(0x0104, 0x1);
+  // set_register(0x0104, 0x1);
 
 
 
@@ -312,6 +313,9 @@ void camera_task(void *parameters)
   }
 
   // conf_exposure();     // commented out to use auto exposure settings!
+  // set_register(0x0104, 0x1);
+  // set_register(0x2100, 0x01);  // AE_CTRL
+  // set_register(0x0104, 0x1);
   cpxPrintToConsole(LOG_TO_CRTP, "Configured exposure\n");
 
 
