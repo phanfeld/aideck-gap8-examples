@@ -35,12 +35,12 @@
 #include "wifi.h"
 
 #define IMG_ORIENTATION 0x0101
-#define CAM_WIDTH 324 //324
-#define CAM_HEIGHT 324 //324
+#define CAM_WIDTH 162 //324
+#define CAM_HEIGHT 162 //324
 
 static pi_task_t task1;
 static char *imgBuff;
-// static char *croppedImg;
+static char *croppedImg;
 static struct pi_device camera;
 static pi_buffer_t buffer;
 
@@ -76,7 +76,7 @@ static int open_pi_camera_himax(struct pi_device *device)
 
   pi_himax_conf_init(&cam_conf);
 
-  cam_conf.format = PI_CAMERA_QVGA; //;PI_CAMERA_QQVGA
+  cam_conf.format = PI_CAMERA_QQVGA; // PI_CAMERA_QVGA for 324x234
 
   pi_open_from_conf(device, &cam_conf);
   if (pi_camera_open(device))
@@ -224,8 +224,8 @@ static CPXPacket_t txp;
 void createImageHeaderPacket(CPXPacket_t * packet, uint32_t imgSize, StreamerMode_t imgType) {
   img_header_t *imgHeader = (img_header_t *) packet->data;
   imgHeader->magic = 0xBC;
-  imgHeader->width = CAM_WIDTH; // 160
-  imgHeader->height = CAM_HEIGHT; //96
+  imgHeader->width = 160; // CAM_WIDTH; for 324x324
+  imgHeader->height = 96; // CAM_WIDTH; for 324x324
   imgHeader->depth = 1;
   imgHeader->type = imgType;
   imgHeader->size = imgSize;
@@ -299,7 +299,7 @@ void camera_task(void *parameters)
   uint32_t resolution = CAM_WIDTH * CAM_HEIGHT;
   uint32_t captureSize = resolution * sizeof(char);
   imgBuff = (char *)pmsis_l2_malloc(captureSize);
-  // croppedImg = (char *)pmsis_l2_malloc(96*160*sizeof(char));
+  croppedImg = (char *)pmsis_l2_malloc(96*160*sizeof(char));
   if (imgBuff == NULL)
   {
     cpxPrintToConsole(LOG_TO_CRTP, "Failed to allocate Memory for Image \n");
@@ -404,8 +404,8 @@ void camera_task(void *parameters)
       else
       {
         // imgSize = captureSize;
-        // cropImage(imgBuff, croppedImg);
-        imgSize = CAM_WIDTH * CAM_HEIGHT;// 96 * 160;
+        cropImage(imgBuff, croppedImg);
+        imgSize = 96 * 160;  // CAM_WIDTH * CAM_HEIGHT; for 324x324
         start = xTaskGetTickCount();
 
         // First send information about the image
@@ -415,8 +415,8 @@ void camera_task(void *parameters)
         start = xTaskGetTickCount();
         // Send image
         // char *croppedBuff = imgBuff+(35*sizeof(char));
-        sendBufferViaCPX(&txp, imgBuff, imgSize);
-        // sendBufferViaCPX(&txp, croppedImg, imgSize);
+        // sendBufferViaCPX(&txp, imgBuff, imgSize);
+        sendBufferViaCPX(&txp, croppedImg, imgSize);
 
         transferTime = xTaskGetTickCount() - start;
       }
